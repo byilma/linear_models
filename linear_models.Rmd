@@ -120,5 +120,50 @@ broom::glance(fit)
 ```
 
 
+## Model Diganostics ... the `modelr` package
+
+```{r}
+residuals(fit) 
+
+nyc_airbnb %>% 
+  modelr::add_residuals(fit) %>% drop_na(resid) %>% 
+  ggplot(aes(x = borough, y = resid)) + 
+  geom_violin() + 
+  ylim(-500, 1500) #add this line to "zoom in" in your scales
+
+
+nyc_airbnb %>% 
+  modelr::add_residuals(fit) %>% filter(resid > 3000) %>% 
+  ggplot(aes(x = stars, y = resid)) +
+  geom_point() +
+  facet_wrap(. ~ borough)
+#the residual values here tell me that the price of that airbnb spot is $9.47 higher than what my model would predict; 35.5 dollars higher; $20.5 lower, etc ... 
+#^this makes a lot of sense because all that a residual is is a difference between my observed Y & my predicted Y: residuals =  [Y-Y_hat]
+```
+
+
+## Hypothesis tests
+
+#This does ttests by default
+```{r}
+fit %>% 
+  broom::tidy()
+```
+
+
+What about the significance of `borough` as a whole - a partial f 
+
+```{r}
+
+fit_null = lm(price ~ stars, data = nyc_airbnb)
+fit_alt = lm(price ~ stars + borough, data = nyc_airbnb)
+
+#partial f test 
+
+anova(fit_null, fit_alt) %>% 
+  broom::tidy()
+
+```
+
 
 
