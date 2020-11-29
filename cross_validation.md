@@ -173,7 +173,8 @@ cv_df =
 Let’s try to fit models & get RMSEs for them.
 
 ``` r
-cv_df = cv_df %>% 
+cv_df = 
+  cv_df %>% 
   mutate(
     linear_mod = map(.x = train, ~lm(y ~ x, data = .x)),
     smooth_mod = map(.x = train, ~gam(y ~ s(x), data = .x)), 
@@ -186,7 +187,7 @@ cv_df = cv_df %>%
   )
 ```
 
-What do these results say about model choices?
+What do these results say about model choices? \#\# VIOLIN PLOTS of RMSE
 
 ``` r
 cv_df %>% 
@@ -231,3 +232,100 @@ cv_df %>%
     ## 1 linear   0.718
     ## 2 smooth   0.289
     ## 3 wiggly   0.354
+
+## Let’s try this on a real dataset ..
+
+``` r
+child_growth_df = 
+  read_csv("./data/nepalese_children.csv") %>% 
+  mutate(
+    weight_cp = (weight > 7) * (weight - 7) #change point models to get something that's initally linear up until 7 then is allowed to bend (?) then be straight again
+  )
+```
+
+    ## Parsed with column specification:
+    ## cols(
+    ##   age = col_double(),
+    ##   sex = col_double(),
+    ##   weight = col_double(),
+    ##   height = col_double(),
+    ##   armc = col_double()
+    ## )
+
+weight vs. arm circumference
+
+``` r
+child_growth_df %>% 
+  ggplot(aes(x = weight, y = armc)) + 
+  geom_point(alpha = .3)
+```
+
+<img src="cross_validation_files/figure-gfm/unnamed-chunk-16-1.png" width="90%" />
+
+Fit the models I care about.
+
+``` r
+linear_mod = lm(armc ~ weight, data = child_growth_df)
+pwlin_mod = lm(armc ~ weight + weight_cp, data = child_growth_df) #piicewise linear model that accounts for the weight_cp variable
+smooth_mod = gam(armc ~ s(weight), data = child_growth_df)
+```
+
+Which of these is the right model to use for this association?
+
+``` r
+child_growth_df %>% 
+  gather_predictions(linear_mod, pwlin_mod, smooth_mod) %>% 
+  ggplot(aes(x = weight, y = armc)) + 
+  geom_point(alpha = .3) +
+  geom_line(aes(y = pred), color = "red") + 
+  facet_grid(. ~ model)
+```
+
+<img src="cross_validation_files/figure-gfm/unnamed-chunk-18-1.png" width="90%" />
+
+Try to understand model fit using cross validation .
+
+``` r
+cv_df = 
+  crossv_mc(child_growth_df, 100) %>% 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  )
+```
+
+See if I can fit the model the splits (i.e., to the test datasets) …
+
+``` r
+cv_df = 
+  cv_df %>% 
+  mutate(
+    linear_mod = map(.x = train, ~lm(armc ~ weight + weight_cp, data  = .x)),
+    pwlin_mod = map(.x = train,  ~lm(armc ~ weight + weight_cp, data  = .x)),
+    smooth_mod = map(.x = train, ~gam(armc ~ s(weight), data = .x))
+  ) %>% 
+  mutate(
+    rmse_linear = map2_dbl(.x = linear_mod, .y = test, ~rmse(model = .x, data = .y)),
+    rmse_pwlin = map2_dbl(.x = pwlin_mod, .y = test, ~rmse(model = .x, data = .y)),
+    rmse_smooth = map2_dbl(.x = smooth_mod, .y = test, ~rmse(model = .x, data = .y))
+  )
+```
+
+``` r
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) %>% 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_violin() + 
+  labs(
+    title = "The Distribution of RMSEs across 100 training/testing splits fitting the 3 different models: Linear, Piecewise, Smooth", 
+    subtitle = "The Smooth model does the best in terms of prediction; but it might be that the 'interpretation' is better when looking at the piecewise model"
+  )
+```
+
+<img src="cross_validation_files/figure-gfm/unnamed-chunk-21-1.png" width="90%" />
