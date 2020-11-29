@@ -6,6 +6,7 @@ output: github_document
 ```{r setup, include = F}
 library(tidyverse)
 library(modelr)
+library(p8105.datasets)
 
 knitr::opts_chunk$set(
   fig.width = 6,
@@ -200,7 +201,7 @@ The function `bootstrap` in `modelr` carries out lets us bootstrap from a given 
 
 Note how the `bootstrap` function gives us a "tibble" object instead of a `tibble`
 ```{r}
-sim_df_const %>% 
+sim_df_nonconst %>% 
   bootstrap(1000, id = "strap_number") %>% 
   mutate(
     models = map(.x = strap, ~lm(y ~ x, data = .x)),
@@ -213,12 +214,125 @@ sim_df_const %>%
     mean_est  = mean(estimate), #1st moment
     sd_est = sd(estimate) #3rd (?) moment
   )
+
+#we do what we did earlier with bootstrapping and so on here but this time only with 12 lines of code. 
+```
+
+
+Compare the estimates you get from bootstrapping over sim_df_const to the estimates you get when running a lm() on sim_df_const
+```{r, include = F, echo=FALSE}
+sim_df_const %>%  
+  bootstrap(1000, id = "strap_number") %>% 
+  mutate(
+    models = map(.x = strap, ~lm(y ~ x, data = .x)),
+    results = map(models, broom::tidy)
+  ) %>% 
+  select(strap_number, results) %>% 
+  unnest(results)  %>%  
+  group_by(term) %>% 
+  summarize(
+    mean_est  = mean(estimate), #1st moment
+    sd_est = sd(estimate) #3rd (?) moment
+  )
+
+#Compare to this:
+lm(y ~ x, data = sim_df_const) %>% broom::tidy()
 ```
 
 
 
+Let's revisit `nyc_airbnb`
+```{r}
+data("nyc_airbnb")
+
+nyc_airbnb = 
+  nyc_airbnb %>% 
+  mutate(stars = review_scores_location / 2) %>% 
+  rename(
+    borough = neighbourhood_group,
+    neighborhood = neighbourhood) %>% 
+  filter(borough != "Staten Island") %>% # not enough data points in staten island so we take it out 
+  select(price, stars, borough, neighborhood, room_type)
+```
+
+
+
+Plots stars & price 
+```{r}
+nyc_airbnb %>% 
+  ggplot(aes(x = stars, y = price)) + 
+  geom_point() + 
+  labs(
+    title = "Price vs. Stars", 
+    subtitle = "Note how we don't observe constant variance " # so what would be nice is we can bootstrap to get an empirical sense of the type of distribution our data is actually following
+  )
+```
+
+
+Let's just focus on "Manhattan" 
+```{r}
+nyc_airbnb  %>% 
+  filter(borough == "Manhattan") %>% 
+  drop_na(stars) %>% 
+  ggplot(aes(x = stars, y = price)) + 
+  geom_point() + 
+   labs(
+    title = "Manhattan: Price vs. Stars", 
+    subtitle = "Still, a clearly non-constant variance "
+  )
+```
+
+
+Next steps: 
+1- bootstrap, 
+2 - fit a regression on these bootstrap samples of `price` ~ `stars`
+3 - then get an estimate
 
 
 
 
+```{r}
+airbnb_boot_results = nyc_airbnb  %>% 
+  filter(borough == "Manhattan") %>% 
+  drop_na(stars) %>%  
+  bootstrap(1000, id = "strap_number") %>% 
+  mutate(
+    models = map(.x = strap, ~lm(price ~ stars, data = .x)),
+    results = map(models, broom::tidy)
+  ) %>% 
+  select(strap_number, results) %>% 
+  unnest(results) 
+
+airbnb_boot_results %>% 
+  group_by(term) %>% 
+  summarize(
+    mean_est  = mean(estimate), 
+    sd_est = sd(estimate) 
+  )
+```
+
+
+Let's compare this ^ to lm : 
+```{r}
+nyc_airbnb  %>% 
+  filter(borough == "Manhattan") %>% 
+  drop_na(stars) %>% 
+  lm(price ~ stars, data = .)  %>% #peep the [data = .] and how that let's the data in the previous lines be "piped"into the second argument. Telling the function to work with "this" dataset
+  broom::tidy()
+```
+
+Note how the std.error is higher in the `bootstrap` samples than it is for the `lm()`, which is what we'd expect because bootstrap doesn't assume constant variance as does the OLS method in `lm`
+
+
+```{r}
+airbnb_boot_results %>% 
+  filter(term == "stars") %>% 
+  ggplot(aes(x = estimate)) + 
+  geom_density() + 
+  labs(
+    title = "Distribution of Estimated slope under bootstrapping"
+  )
+  
+
+```
 

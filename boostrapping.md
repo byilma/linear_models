@@ -245,7 +245,7 @@ Note how the `bootstrap` function gives us a “tibble” object instead of
 a `tibble`
 
 ``` r
-sim_df_const %>% 
+sim_df_nonconst %>% 
   bootstrap(1000, id = "strap_number") %>% 
   mutate(
     models = map(.x = strap, ~lm(y ~ x, data = .x)),
@@ -265,5 +265,122 @@ sim_df_const %>%
     ## # A tibble: 2 x 3
     ##   term        mean_est sd_est
     ##   <chr>          <dbl>  <dbl>
-    ## 1 (Intercept)     1.98 0.0984
-    ## 2 x               3.04 0.0720
+    ## 1 (Intercept)     1.93 0.0762
+    ## 2 x               3.11 0.104
+
+``` r
+#we do what we did earlier with bootstrapping and so on here but this time only with 12 lines of code. 
+```
+
+Compare the estimates you get from bootstrapping over sim\_df\_const to
+the estimates you get when running a lm() on sim\_df\_const
+
+Let’s revisit `nyc_airbnb`
+
+``` r
+data("nyc_airbnb")
+
+nyc_airbnb = 
+  nyc_airbnb %>% 
+  mutate(stars = review_scores_location / 2) %>% 
+  rename(
+    borough = neighbourhood_group,
+    neighborhood = neighbourhood) %>% 
+  filter(borough != "Staten Island") %>% # not enough data points in staten island so we take it out 
+  select(price, stars, borough, neighborhood, room_type)
+```
+
+Plots stars & price
+
+``` r
+nyc_airbnb %>% 
+  ggplot(aes(x = stars, y = price)) + 
+  geom_point() + 
+  labs(
+    title = "Price vs. Stars", 
+    subtitle = "Note how we don't observe constant variance " # so what would be nice is we can bootstrap to get an empirical sense of the type of distribution our data is actually following
+  )
+```
+
+    ## Warning: Removed 9962 rows containing missing values (geom_point).
+
+<img src="boostrapping_files/figure-gfm/unnamed-chunk-15-1.png" width="90%" />
+
+Let’s just focus on “Manhattan”
+
+``` r
+nyc_airbnb  %>% 
+  filter(borough == "Manhattan") %>% 
+  drop_na(stars) %>% 
+  ggplot(aes(x = stars, y = price)) + 
+  geom_point() + 
+   labs(
+    title = "Manhattan: Price vs. Stars", 
+    subtitle = "Still, a clearly non-constant variance "
+  )
+```
+
+<img src="boostrapping_files/figure-gfm/unnamed-chunk-16-1.png" width="90%" />
+
+Next steps: 1- bootstrap, 2 - fit a regression on these bootstrap
+samples of `price` \~ `stars` 3 - then get an estimate
+
+``` r
+airbnb_boot_results = nyc_airbnb  %>% 
+  filter(borough == "Manhattan") %>% 
+  drop_na(stars) %>%  
+  bootstrap(1000, id = "strap_number") %>% 
+  mutate(
+    models = map(.x = strap, ~lm(price ~ stars, data = .x)),
+    results = map(models, broom::tidy)
+  ) %>% 
+  select(strap_number, results) %>% 
+  unnest(results) 
+
+airbnb_boot_results %>% 
+  group_by(term) %>% 
+  summarize(
+    mean_est  = mean(estimate), 
+    sd_est = sd(estimate) 
+  )
+```
+
+    ## `summarise()` ungrouping output (override with `.groups` argument)
+
+    ## # A tibble: 2 x 3
+    ##   term        mean_est sd_est
+    ##   <chr>          <dbl>  <dbl>
+    ## 1 (Intercept)    -35.0  31.8 
+    ## 2 stars           43.4   6.43
+
+Let’s compare this ^ to lm :
+
+``` r
+nyc_airbnb  %>% 
+  filter(borough == "Manhattan") %>% 
+  drop_na(stars) %>% 
+  lm(price ~ stars, data = .)  %>% #peep the [data = .] and how that let's the data in the previous lines be "piped"into the second argument. Telling the function to work with "this" dataset
+  broom::tidy()
+```
+
+    ## # A tibble: 2 x 5
+    ##   term        estimate std.error statistic  p.value
+    ##   <chr>          <dbl>     <dbl>     <dbl>    <dbl>
+    ## 1 (Intercept)    -34.3     22.9      -1.50 1.35e- 1
+    ## 2 stars           43.3      4.78      9.07 1.39e-19
+
+Note how the std.error is higher in the `bootstrap` samples than it is
+for the `lm()`, which is what we’d expect because bootstrap doesn’t
+assume constant variance as does the OLS method in `lm`
+
+``` r
+airbnb_boot_results %>% 
+  filter(term == "stars") %>% 
+  ggplot(aes(x = estimate)) + 
+  geom_density() + 
+  labs(
+    title = "Distribution of Estimated slope under bootstrapping"
+  )
+```
+
+<img src="boostrapping_files/figure-gfm/unnamed-chunk-19-1.png" width="90%" />
