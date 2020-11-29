@@ -151,7 +151,7 @@ fit %>%
 ```
 
 
-What about the significance of `borough` as a whole - a partial f 
+What about the statistical significance of `borough` as a whole - a partial f 
 
 ```{r}
 
@@ -162,6 +162,62 @@ fit_alt = lm(price ~ stars + borough, data = nyc_airbnb)
 
 anova(fit_null, fit_alt) %>% 
   broom::tidy()
+```
+
+
+## Nest data, fit models
+
+Let's we're interested in whether there's an association between `stars` & `price`, and does that association vary by `borough` ... & moreover, can we see if `stars` & `room_type` has a bigger effect (think about the word `effect` here) in say Manhattan or Queens etc ...  <- to do this, we'll use `interactions` i.e., ask if the effect of `stars` & `room_type` varies by borough ... as opposed to just adjusting for `stars` & `room_type` when regressing price on `price` & `borough`
+
+
+```{r}
+fit = lm(price ~ stars * borough + room_type * borough, data = nyc_airbnb)
+
+broom::tidy(fit)
+```
+^ This is pretty formal & also pretty complex
+
+
+
+The following is more exploratory but maybe easier to understand. 
+```{r}
+
+nyc_airbnb %>% 
+  nest(data = -borough) %>% 
+  mutate(
+    models = map(.x = data, ~lm(price ~ stars + room_type, data = .x)), 
+    results = map(models, broom::tidy)
+  ) %>% 
+  select(-data, -models) %>% 
+  unnest(results) %>% 
+  filter(term != "(Intercept)") %>% 
+  select(borough, term, estimate) %>% 
+  pivot_wider(
+    names_from = borough,
+    values_from = estimate
+  )
+  
+```
+
+
+Let's nest even more . . .
+
+
+```{r}
+nyc_airbnb %>% 
+  filter(borough == "Manhattan") %>% 
+  nest(data = -neighborhood) %>% 
+  mutate(
+    models = map(.x = data, ~lm(price ~ stars + room_type, data = .x)), 
+    results = map(models, broom::tidy)
+  ) %>% 
+  select(-data, -models) %>% 
+  unnest(results) %>% 
+  filter(str_detect(term, "room_type")) %>% 
+  ggplot(aes(x = neighborhood, y = estimate)) + 
+    geom_point() + 
+    facet_wrap(. ~ term) + 
+  theme(axis.text.x = element_text(angle = 70, vjust = 0.5, hjust = 0.5))
 
 ```
 
