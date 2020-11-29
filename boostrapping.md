@@ -130,3 +130,140 @@ boot_sample(sim_df_nonconst) %>%
     ##   <chr>          <dbl>     <dbl>     <dbl>     <dbl>
     ## 1 (Intercept)     1.90    0.0982      19.3 2.45e- 51
     ## 2 x               3.14    0.0688      45.6 1.18e-122
+
+## Many samples and analysis
+
+``` r
+boot_straps = 
+  tibble(
+    strap_number = 1:1000,
+    strap_sample = rerun(1000, boot_sample(sim_df_nonconst))
+  )
+```
+
+Can I run my analysis on these … ? yes\! using stuff we’ve used before
+
+``` r
+boot_results = 
+  boot_straps %>% 
+  mutate(
+    models = map(.x = strap_sample, ~lm(y ~ x, data = .x)),
+    results = map(models, broom::tidy)
+  ) %>% 
+  select(strap_number, results) %>% 
+  unnest(results)
+```
+
+What do I have now?
+
+We now want to know the distribution of the estimated intercept and
+estimated coefficient (slope)
+
+Compare the error of the estimate and the slope you got from the
+bootstrap samples to the error terms you got from the linear models:
+
+Notice how the std.errors you get from the bootsrap model better
+approximate the distribution of the error terms we see in
+`sim_df_nonconst` (check scatter plot) with a lower std.error around the
+intercept & a larger std.error for the slope oi
+
+``` r
+boot_results %>% 
+  group_by(term) %>% 
+  summarize(
+    mean_est  = mean(estimate), #1st moment
+    sd_est = sd(estimate) #3rd (?) moment
+  )
+```
+
+    ## `summarise()` ungrouping output (override with `.groups` argument)
+
+    ## # A tibble: 2 x 3
+    ##   term        mean_est sd_est
+    ##   <chr>          <dbl>  <dbl>
+    ## 1 (Intercept)     1.93 0.0748
+    ## 2 x               3.11 0.101
+
+``` r
+lm(y ~ x, data = sim_df_nonconst) %>% broom::tidy()
+```
+
+    ## # A tibble: 2 x 5
+    ##   term        estimate std.error statistic   p.value
+    ##   <chr>          <dbl>     <dbl>     <dbl>     <dbl>
+    ## 1 (Intercept)     1.93    0.105       18.5 1.88e- 48
+    ## 2 x               3.11    0.0747      41.7 5.76e-114
+
+What we can then do is go ahead and construct the confidence intervals
+using the bootstrap results
+
+First, let’s look at the distributions of the estimate
+
+``` r
+boot_results %>% 
+  filter(term == "x") %>% 
+  ggplot(aes(x = estimate)) + 
+  geom_density()
+```
+
+<img src="boostrapping_files/figure-gfm/unnamed-chunk-10-1.png" width="90%" />
+
+Under bootstrapping, i.e., under repeated sampling, without relying on
+any theoretical assumptions, the distributions of the estimated slope
+(`x`) looks like this ^^ …. so now, if I want to construct confidence
+intervals, I can go to the tail ends, and “chop-off” or set cut-off
+points at 2.5% of the distribution, as it were.
+
+construct boostrap CI
+
+``` r
+boot_results %>% 
+  group_by(term) %>% 
+  summarize(
+    ci_lower = quantile(estimate, 0.025), # quantile() gives me the quantiles of the estimates at 2.5% 
+    ci_upper = quantile(estimate, 0.975)  # quantile() gives me the quantiles of the estimates at 97.5% 
+  )
+```
+
+    ## `summarise()` ungrouping output (override with `.groups` argument)
+
+    ## # A tibble: 2 x 3
+    ##   term        ci_lower ci_upper
+    ##   <chr>          <dbl>    <dbl>
+    ## 1 (Intercept)     1.79     2.08
+    ## 2 x               2.91     3.31
+
+## Bootstrap using modelr
+
+Can we simplify anything from the above
+
+The function `bootstrap` in `modelr` carries out lets us bootstrap from
+a given dataset … which is essentially what we did with our function
+`boot_sample`
+
+Note how the `bootstrap` function gives us a “tibble” object instead of
+a `tibble`
+
+``` r
+sim_df_const %>% 
+  bootstrap(1000, id = "strap_number") %>% 
+  mutate(
+    models = map(.x = strap, ~lm(y ~ x, data = .x)),
+    results = map(models, broom::tidy)
+  ) %>% 
+  select(strap_number, results) %>% 
+  unnest(results)  %>%  
+  group_by(term) %>% 
+  summarize(
+    mean_est  = mean(estimate), #1st moment
+    sd_est = sd(estimate) #3rd (?) moment
+  )
+```
+
+    ## `summarise()` ungrouping output (override with `.groups` argument)
+
+    ## # A tibble: 2 x 3
+    ##   term        mean_est sd_est
+    ##   <chr>          <dbl>  <dbl>
+    ## 1 (Intercept)     1.98 0.0984
+    ## 2 x               3.04 0.0720
