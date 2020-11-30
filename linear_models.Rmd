@@ -38,7 +38,7 @@ nyc_airbnb =
   rename(
     borough = neighbourhood_group,
     neighborhood = neighbourhood) %>% 
-  filter(borough != "Staten Island") %>% 
+  filter(borough != "Staten Island") %>%  # not enough data points in staten island so we take it out 
   select(price, stars, borough, neighborhood, room_type)
 ```
 

@@ -332,7 +332,5 @@ airbnb_boot_results %>%
   labs(
     title = "Distribution of Estimated slope under bootstrapping"
   )
-  
-
 ```
 
